@@ -1,4 +1,4 @@
-# XXXAI — Proyecto Vite + React
+# xxxai — Proyecto Vite + React
 
 Proyecto **Vite + React** con API Express en el mismo repo. Una sola instalación, un solo comando para desarrollo.
 
@@ -27,7 +27,7 @@ xxxai/
 │   │   └── middleware/
 │   └── src/models/         # Mongoose (MongoDB)
 ├── .env.example
-└── INICIAR-XXXAI.bat  # Arrancar todo (Windows)
+└── INICIAR-VIDEOONIX.bat   # Arrancar todo (Windows)
 ```
 
 ## Requisitos
@@ -39,7 +39,8 @@ xxxai/
 ### Instalación (una vez)
 
 ```bash
-cd C:\Users\julia\videoOnix
+git clone https://github.com/Draple/xxxai.git
+cd xxxai
 npm install
 ```
 
@@ -83,7 +84,7 @@ Ejecuta **`INICIAR-VIDEOONIX.bat`**: instala, inicia API y app y abre el navegad
 | `npm run api` | Solo API Express en :4000 |
 | `npm run build` | Build de producción (Vite) |
 | `npm run preview` | Previsualizar build |
-| `npm run db:init` | Crear/inicializar SQLite |
+| `npm run db:init` | Crear/inicializar MongoDB |
 | `npm start` | Vite + API a la vez |
 
 ### Build para producción
@@ -97,7 +98,7 @@ La app queda en `dist/`. La API se ejecuta con `npm run api` (o en tu servidor c
 ## Configuración
 
 - **Frontend:** Vite 5, React 18, React Router, Tailwind CSS.
-- **API:** Express, SQLite (better-sqlite3), JWT, bcrypt.
+- **API:** Express, MongoDB (Mongoose), JWT, bcrypt. Integración WishApp y Hugging Face.
 - **Proxy:** En dev, las peticiones a `/api` se envían a `http://localhost:4000`.
 
-Variables en `.env` (ver `.env.example`): `PORT`, `JWT_SECRET`, `FRONTEND_URL`, Stripe y wallets cripto si los usas.
+Variables en `.env` (ver `.env.example`): `PORT`, `JWT_SECRET`, `MONGODB_URI`, `VITE_API_URL`, `PUBLIC_URL`, WishApp y Hugging Face si los usas.
