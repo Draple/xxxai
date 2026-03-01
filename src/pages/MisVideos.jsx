@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import DashboardLayout from '../components/DashboardLayout';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
@@ -21,8 +21,20 @@ export default function MisVideos() {
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState(null);
+  const [infoMessage, setInfoMessage] = useState(null);
   const { user } = useAuth();
   const { lang, t } = useLanguage();
+  const location = useLocation();
+
+  useEffect(() => {
+    const msg = location.state?.generateMessage;
+    if (msg) {
+      setInfoMessage(msg);
+      window.history.replaceState({}, '', location.pathname);
+      const tid = setTimeout(() => setInfoMessage(null), 12000);
+      return () => clearTimeout(tid);
+    }
+  }, [location.state?.generateMessage]);
 
   const fetchVideos = () => {
     return fetch(`${API}/videos`, { headers: headers() })
@@ -39,7 +51,7 @@ export default function MisVideos() {
   const hasProcessing = videos.length > 0 && videos.some((v) => v.status === 'processing');
   useEffect(() => {
     if (!hasProcessing) return;
-    const interval = setInterval(() => fetchVideos(), 3000);
+    const interval = setInterval(() => fetchVideos(), 5000);
     return () => clearInterval(interval);
   }, [hasProcessing]);
 
@@ -77,6 +89,11 @@ export default function MisVideos() {
         <div className="mb-8">
           <h1 className="font-display font-bold text-white text-2xl sm:text-3xl tracking-tight mb-2">{t('myVideosTitle')}</h1>
           <p className="text-onix-mutedLight text-base">{t('myVideosSubtitle')}</p>
+          {infoMessage && (
+            <div className="mt-3 p-3 rounded-xl bg-onix-accent/15 border border-onix-accent/30 text-onix-accent text-sm">
+              {infoMessage}
+            </div>
+          )}
           {showingExamples && (
             <p className="text-onix-accent/90 text-sm mt-2 font-medium">{t('exampleVideosBanner')}</p>
           )}

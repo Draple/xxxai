@@ -1,6 +1,6 @@
 # xxxai — Proyecto Vite + React
 
-Proyecto **Vite + React** con API Express en el mismo repo. Una sola instalación, un solo comando para desarrollo.
+Proyecto **Vite + React** con **un solo backend** (Express en `server/`) en el mismo repo. Ese backend procesa todo: auth, vídeos (WishApp), chat, pagos. Una sola instalación, un solo comando para desarrollo.
 
 ## Estructura (proyecto Vite + React)
 
@@ -19,7 +19,7 @@ xxxai/
 │   └── pages/
 ├── public/
 │   └── favicon.svg
-├── server/                 # API Express (mismo repo)
+├── server/                 # Único backend: API Express (auth, vídeos, chat, pagos)
 │   ├── src/
 │   │   ├── index.js
 │   │   ├── db/
@@ -98,7 +98,7 @@ La app queda en `dist/`. La API se ejecuta con `npm run api` (o en tu servidor c
 ## Configuración
 
 - **Frontend:** Vite 5, React 18, React Router, Tailwind CSS.
-- **API:** Express, MongoDB (Mongoose), JWT, bcrypt. Integración WishApp y Hugging Face.
+- **API:** Express, MongoDB (Mongoose), JWT, bcrypt. **WishApp** es la API central para generación de vídeos por IA; ver `docs/INTEGRACION-WISHAPP-VIDEOS.md`.
 - **Proxy:** En dev, las peticiones a `/api` se envían a `http://localhost:4000`.
 
-Variables en `.env` (ver `.env.example`): `PORT`, `JWT_SECRET`, `MONGODB_URI`, `VITE_API_URL`, `PUBLIC_URL`, WishApp y Hugging Face si los usas.
+Variables en `.env` (ver `.env.example`): `PORT`, `JWT_SECRET`, `MONGODB_URI`, `VITE_API_URL`, `PUBLIC_URL`, `WISHAPP_API_TOKEN` (vídeos IA), y opcionales para chat (Ollama, HF_TOKEN).

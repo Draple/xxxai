@@ -94,15 +94,6 @@ function countAiMessagesSinceLastUser(messages) {
   return count;
 }
 
-function getWelcomeMessages(welcomeKey, welcomeName) {
-  return [{ id: 'welcome', role: 'ai', welcomeKey, welcomeName, time: new Date().toISOString() }];
-}
-
-function getGroupWelcomeMessage(groupName, memberNames) {
-  const names = memberNames.join(', ');
-  return [{ id: 'welcome', role: 'ai', text: '', time: new Date().toISOString(), groupWelcome: true, groupName, memberNames: names }];
-}
-
 export default function Chat() {
   const { user, token: authToken } = useAuth();
   const { t } = useLanguage();
@@ -232,23 +223,9 @@ export default function Chat() {
     return selectedGroup.aiIds.map((id) => allAiList.find((a) => a.id === id)).filter(Boolean);
   }, [selectedGroup, allAiList]);
   const selectedAi = !selectedGroup && effectiveSelectedId ? allAiList.find((a) => a.id === effectiveSelectedId) : null;
-  const groupWelcomeFallback = useMemo(() => {
-    if (!selectedGroup || groupMembers.length === 0) return [];
-    const names = groupMembers.map((m) => m.displayName);
-    return getGroupWelcomeMessage(selectedGroup.name, names);
-  }, [selectedGroup, groupMembers]);
-  const messages = conversations[effectiveSelectedId] ?? (selectedGroup ? groupWelcomeFallback : (selectedAi ? getWelcomeMessages(selectedAi.welcomeKey, selectedAi.welcomeName) : []));
+  const messages = conversations[effectiveSelectedId] ?? [];
 
-  // Si no hay conversación con esta IA o grupo, crearla con el mensaje de bienvenida
-  useEffect(() => {
-    if (!user?.id || loadedUserIdRef.current !== user.id || !effectiveSelectedId) return;
-    setConversations((prev) => {
-      if (prev[effectiveSelectedId] !== undefined && prev[effectiveSelectedId].length > 0) return prev;
-      const welcome = selectedGroup ? groupWelcomeFallback : (selectedAi ? getWelcomeMessages(selectedAi.welcomeKey, selectedAi.welcomeName) : []);
-      if (welcome.length === 0) return prev;
-      return { ...prev, [effectiveSelectedId]: welcome };
-    });
-  }, [user?.id, effectiveSelectedId, selectedGroup, selectedAi, groupWelcomeFallback]);
+  // Sin mensajes de bienvenida: no se inicializa conversación con mensaje de la IA
 
   // Al cambiar de chat, sincronizar ref y ocultar notificación
   useEffect(() => {
@@ -292,47 +269,15 @@ export default function Chat() {
     return () => el.removeEventListener('scroll', check);
   }, [effectiveSelectedId]);
 
-  // Mensajes proactivos de la IA (o de un miembro del grupo) de vez en cuando
+  // Mensajes proactivos de la IA deshabilitados (no se programan timers)
   const proactiveTimerRef = useRef(null);
-  const hasInteractedWithCurrentChat = selectedGroup
-    ? (conversations[effectiveSelectedId] || []).some((m) => m.role === 'user')
-    : hasInteractedWith(effectiveSelectedId);
   useEffect(() => {
-    if (!effectiveSelectedId || !hasInteractedWithCurrentChat) return;
-    const welcomeForProactive = selectedGroup ? groupWelcomeFallback : (selectedAi ? getWelcomeMessages(selectedAi.welcomeKey, selectedAi.welcomeName) : []);
-
-    const MAX_AI_MESSAGES_AFTER_USER = 2;
-
-    const scheduleNext = () => {
-      const delay = proactiveTimerRef.current ? randomBetween(55000, 140000) : randomBetween(28000, 45000);
-      proactiveTimerRef.current = setTimeout(() => {
-        setConversations((prev) => {
-          const list = prev[effectiveSelectedId] ?? welcomeForProactive;
-          if (countAiMessagesSinceLastUser(list) >= MAX_AI_MESSAGES_AFTER_USER) return prev;
-          const key = PROACTIVE_KEYS[Math.floor(Math.random() * PROACTIVE_KEYS.length)];
-          const aiMsg = {
-            id: `ai-proactive-${Date.now()}`,
-            role: 'ai',
-            proactiveKey: key,
-            time: new Date().toISOString(),
-            ...(selectedGroup && groupMembers.length > 0 ? { aiId: groupMembers[Math.floor(Math.random() * groupMembers.length)].id } : {}),
-          };
-          return {
-            ...prev,
-            [effectiveSelectedId]: [...list, aiMsg],
-          };
-        });
-        proactiveTimerRef.current = null;
-        scheduleNext();
-      }, delay);
-    };
-
-    scheduleNext();
+    if (!effectiveSelectedId) return;
     return () => {
       if (proactiveTimerRef.current) clearTimeout(proactiveTimerRef.current);
       proactiveTimerRef.current = null;
     };
-  }, [effectiveSelectedId, selectedAi, selectedGroup, groupMembers, groupWelcomeFallback, t, hasInteractedWithCurrentChat]);
+  }, [effectiveSelectedId]);
 
   const getMessageContent = (msg) => {
     if (msg.text) return msg.text;
@@ -352,12 +297,11 @@ export default function Chat() {
     } else {
       markAiAsInteracted(effectiveSelectedId);
     }
-    const welcomeFallback = selectedGroup ? groupWelcomeFallback : (selectedAi ? getWelcomeMessages(selectedAi.welcomeKey, selectedAi.welcomeName) : []);
     const userMsg = { id: `u-${Date.now()}`, role: 'user', text, time: new Date().toISOString() };
-    const currentList = conversations[effectiveSelectedId] ?? welcomeFallback;
+    const currentList = conversations[effectiveSelectedId] ?? [];
     setConversations((prev) => ({
       ...prev,
-      [effectiveSelectedId]: [...(prev[effectiveSelectedId] ?? welcomeFallback), userMsg],
+      [effectiveSelectedId]: [...(prev[effectiveSelectedId] ?? []), userMsg],
     }));
     setInput('');
     setChatLoading(true);

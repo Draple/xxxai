@@ -4,6 +4,7 @@ import DashboardLayout from '../components/DashboardLayout';
 import Stories, { AI_STORY_IDS } from '../components/Stories';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
+import { API } from '../config/api';
 
 const AI_POSTERS = [
   { id: 'luna', name: 'Luna', avatar: '/images/background/1.jpg', gradient: 'from-amber-400/90 to-rose-500/90' },
@@ -106,8 +107,9 @@ function formatTimeAgo(date, t) {
 
 export default function Feed() {
   const { t } = useLanguage();
-  const { user } = useAuth();
+  const { user, token: authToken } = useAuth();
   const [posts, setPosts] = useState([]);
+  const requestedPostIdsRef = useRef(new Set());
   const [, setTick] = useState(0);
   const [openStoryId, setOpenStoryId] = useState(null);
   const [engagement, setEngagement] = useState(() => loadEngagement());
@@ -124,6 +126,11 @@ export default function Feed() {
   }, []);
 
   const currentUserName = user?.email?.split('@')[0] || 'Tú';
+
+  const getPostDisplayContent = useCallback(
+    (post) => post?.content ?? (post?.contentKey ? t(post.contentKey) : '…'),
+    [t]
+  );
 
   const getPostEngagement = useCallback((postId) => {
     const e = engagement[postId] || { liked: false, likedByAiIds: [], comments: [] };
@@ -161,12 +168,11 @@ export default function Feed() {
   }, []);
 
   const createPostByAuthor = useCallback((author) => {
-    const contentKey = pickRandom(POST_CONTENT_KEYS);
     return {
       id: `post-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       author,
-      contentKey,
       createdAt: new Date(),
+      // content se rellena por Claude vía POST /api/ai/feed-post
     };
   }, []);
 
@@ -189,6 +195,41 @@ export default function Feed() {
       savePostsToStorage(initial);
     }
   }, [createPost]);
+
+  // Rellenar contenido de posts con Claude (POST /api/ai/feed-post)
+  useEffect(() => {
+    if (!authToken || !posts.length) return;
+    const lang = t('langEs') === 'Español' ? 'es' : 'en';
+    posts.forEach((post) => {
+      const hasContent = post.content != null && post.content !== '';
+      const hasLegacyKey = post.contentKey && t(post.contentKey);
+      if (hasContent || hasLegacyKey) return;
+      if (requestedPostIdsRef.current.has(post.id)) return;
+      requestedPostIdsRef.current.add(post.id);
+      fetch(`${API}/ai/feed-post`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ authorName: post.author?.name || 'Luna', lang }),
+      })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+        .then((data) => {
+          const content = (data?.content || '').trim().slice(0, 280);
+          setPosts((prev) => {
+            const next = prev.map((p) => (p.id === post.id ? { ...p, content } : p));
+            savePostsToStorage(next);
+            return next;
+          });
+        })
+        .catch(() => {
+          setPosts((prev) => {
+            const fallback = t(pickRandom(POST_CONTENT_KEYS));
+            const next = prev.map((p) => (p.id === post.id ? { ...p, content: fallback } : p));
+            savePostsToStorage(next);
+            return next;
+          });
+        });
+    });
+  }, [posts, authToken, t]);
 
   // Actualizar tiempos "hace X min" cada minuto y quitar posts con más de 24 h
   useEffect(() => {
@@ -376,7 +417,7 @@ export default function Feed() {
                 {/* Contenido (zona “imagen”) */}
                 <div className="min-h-[20px] sm:min-h-[120px] px-1 sm:px-3 py-0.5 sm:py-3 bg-onix-bg/30">
                   <p className="text-zinc-200 text-[9px] sm:text-sm leading-tight sm:leading-normal whitespace-pre-line line-clamp-2 sm:line-clamp-none">
-                    {t(post.contentKey)}
+                    {getPostDisplayContent(post)}
                   </p>
                 </div>
 
@@ -421,7 +462,7 @@ export default function Feed() {
                 <div className="hidden sm:block px-3 pb-1">
                   <p className="text-sm text-zinc-200">
                     <span className="font-semibold text-white mr-1">{post.author.name}</span>
-                    <span className="whitespace-pre-line">{t(post.contentKey)}</span>
+                    <span className="whitespace-pre-line">{getPostDisplayContent(post)}</span>
                   </p>
                 </div>
 

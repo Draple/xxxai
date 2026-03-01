@@ -1,24 +1,27 @@
 import { Router } from 'express';
-import { chatCompletion } from '../api/huggingface.js';
-import { isHuggingFaceConfigured } from '../config/apiKeys.js';
+import { chatCompletion as ollamaChat } from '../api/ollama.js';
+import { chatCompletion as hfRouterChat } from '../api/hfRouter.js';
+import { isChatConfigured, isOllamaConfigured, isHFRouterConfigured } from '../config/apiKeys.js';
 import { User } from '../models/User.js';
 import { connectDB } from '../db/db.js';
 
 export const aiRouter = Router();
 
-const MAX_HISTORY = 10;
-const MAX_MESSAGE_LENGTH = 4000;
+const MAX_HISTORY = 8;
+const MAX_MESSAGE_LENGTH = 2000;
 const CREDITS_PER_CHAT = 1;
+
+const CHAT_OPTS = { max_new_tokens: 280, temperature: 0.75 };
 
 /**
  * POST /api/ai/chat
  * Body: { messages: { role: 'user'|'assistant', content: string }[] }
  * Devuelve: { reply: string }
- * Consume créditos del balance del usuario (1 por mensaje).
+ * Prioridad: 1) Ollama (local, GGUF) si OLLAMA_BASE_URL + OLLAMA_MODEL; 2) Hugging Face Router.
  */
 aiRouter.post('/chat', async (req, res) => {
-  if (!isHuggingFaceConfigured()) {
-    return res.status(503).json({ error: 'Servicio de chat no configurado. Añade HUGGINGFACE_API_TOKEN en .env' });
+  if (!isChatConfigured()) {
+    return res.status(503).json({ error: 'Servicio de chat no configurado. Añade HF_TOKEN o OLLAMA_MODEL en .env' });
   }
   try {
     await connectDB();
@@ -47,22 +50,37 @@ aiRouter.post('/chat', async (req, res) => {
       content: String(m.content ?? '').slice(0, MAX_MESSAGE_LENGTH),
     }));
 
-    const reply = await chatCompletion(safe, {
-      max_new_tokens: 384,
-      temperature: 0.85,
-      top_p: 0.92,
-    });
+    let reply = '';
+    let lastError = '';
+    if (isOllamaConfigured()) {
+      try {
+        reply = await ollamaChat(safe, CHAT_OPTS);
+      } catch (e) {
+        lastError = `Ollama: ${e.message}`;
+        console.warn('[AI chat] Ollama no disponible, usando HF Router:', e.message);
+      }
+    }
+    if (!reply && isHFRouterConfigured()) {
+      try {
+        reply = await hfRouterChat(safe, CHAT_OPTS);
+      } catch (e) {
+        lastError = lastError ? `${lastError}; HF: ${e.message}` : `HF: ${e.message}`;
+        console.warn('[AI chat] HF Router falló:', e.message);
+      }
+    }
+    if (!reply) {
+      const msg = lastError
+        ? `Ningún proveedor de chat disponible. ${lastError}`
+        : 'Ningún proveedor de chat disponible. Comprueba Ollama (local) o HF_TOKEN en .env.';
+      return res.status(503).json({ error: msg });
+    }
 
     await User.findByIdAndUpdate(req.user.id, { $inc: { balance: -CREDITS_PER_CHAT } });
 
     return res.json({ reply: reply || '' });
   } catch (e) {
-    if (e.status === 503) {
-      return res.status(503).json({ error: e.message });
-    }
-    if (e.status === 401) {
-      return res.status(502).json({ error: 'Servicio de IA no disponible' });
-    }
+    if (e.status === 503) return res.status(503).json({ error: e.message });
+    if (e.status === 401) return res.status(502).json({ error: 'Servicio de IA no disponible' });
     console.error('[AI chat]', e.message);
     return res.status(500).json({ error: e.message || 'Error al generar respuesta' });
   }
@@ -92,5 +110,37 @@ aiRouter.post('/create', async (req, res) => {
   } catch (e) {
     console.error('[AI create]', e.message);
     return res.status(500).json({ error: e.message || 'Error al consumir créditos' });
+  }
+});
+
+/**
+ * POST /api/ai/feed-post
+ * Body: { authorName: string, lang?: string }
+ * Devuelve: { content: string } — texto corto para un post del Feed, generado por el modelo (HF Router).
+ */
+aiRouter.post('/feed-post', async (req, res) => {
+  if (!isChatConfigured()) {
+    return res.status(503).json({ error: 'Servicio de IA no configurado. Añade HF_TOKEN en .env' });
+  }
+  try {
+    const authorName = (req.body?.authorName || '').trim() || 'Luna';
+    const lang = (req.body?.lang || 'es').toLowerCase().slice(0, 2);
+    const isSpanish = lang === 'es';
+
+    const userPrompt = isSpanish
+      ? `Eres ${authorName}, una IA con personalidad que publica en un feed tipo red social dentro de una app de generación de video con IA. Escribe una única publicación corta (1 o 2 frases) dando un consejo, tip o comentario amigable sobre la app. Sé directa y natural. Responde SOLO con el texto del post, sin comillas ni prefijos.`
+      : `You are ${authorName}, an AI with personality posting on a social-style feed inside a video-generation app. Write a single short post (1 or 2 sentences) giving a tip or friendly comment about the app. Be direct and natural. Reply with ONLY the post text, no quotes or prefixes.`;
+
+    const reply = await chatCompletion(
+      [{ role: 'user', content: userPrompt }],
+      { max_new_tokens: 120, temperature: 0.9 }
+    );
+
+    const content = (reply || '').trim().slice(0, 280);
+    return res.json({ content: content || (isSpanish ? 'Novedades pronto.' : 'Updates soon.') });
+  } catch (e) {
+    if (e.status === 503) return res.status(503).json({ error: e.message });
+    console.error('[AI feed-post]', e.message);
+    return res.status(500).json({ error: e.message || 'Error al generar el post' });
   }
 });

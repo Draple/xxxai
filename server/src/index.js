@@ -13,7 +13,7 @@ import { userRouter } from './routes/user.js';
 import { wishappRouter } from './routes/wishapp.js';
 import { aiRouter } from './routes/ai.js';
 import { authMiddleware } from './middleware/auth.js';
-import { isWishAppConfigured, isHuggingFaceConfigured } from './config/apiKeys.js';
+import { isWishAppConfigured, isChatConfigured, isOllamaConfigured, isHFRouterConfigured } from './config/apiKeys.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -35,7 +35,7 @@ app.use(cors({
   },
   credentials: true,
 }));
-app.use(express.json());
+app.use(express.json({ limit: '4mb' }));
 
 const UPLOADS_DIR = 'uploads';
 app.use(`/${UPLOADS_DIR}`, express.static(UPLOADS_DIR));
@@ -71,8 +71,23 @@ initDB();
 
 app.listen(PORT, () => {
   console.log(`XXXAI API en http://localhost:${PORT}`);
-  if (isWishAppConfigured()) console.log('  WishApp (balance): configurado');
-  else console.log('  WishApp (balance): no configurado → añade WISHAPP_API_TOKEN en .env');
-  if (isHuggingFaceConfigured()) console.log('  Hugging Face (chat): configurado');
-  else console.log('  Hugging Face (chat): no configurado → añade HUGGINGFACE_API_TOKEN en .env');
+  if (isWishAppConfigured()) {
+    console.log('  WishApp (generación de vídeos por IA): configurado');
+    if (!process.env.PUBLIC_URL) console.warn('  → Define PUBLIC_URL en .env para que WishApp pueda descargar las imágenes subidas.');
+    else {
+      try {
+        const u = new URL(process.env.PUBLIC_URL);
+        if (/^localhost|127\.0\.0\.1$/i.test(u.hostname)) {
+          console.warn('  → PUBLIC_URL es localhost: WishApp no puede descargar imágenes desde tu PC. Para generación real en local usa ngrok y pon PUBLIC_URL=https://tu-tunel.ngrok.io');
+        }
+      } catch (_) {}
+    }
+  } else {
+    console.log('  WishApp: no configurado → añade WISHAPP_API_TOKEN en .env para generación de vídeos');
+  }
+  if (isOllamaConfigured()) console.log('  Chat (Ollama local): configurado');
+  else console.log('  Chat (Ollama): no configurado → OLLAMA_BASE_URL + OLLAMA_MODEL');
+  if (isHFRouterConfigured()) console.log('  Chat (HF Router): configurado');
+  else console.log('  Chat (HF Router): no configurado → HF_TOKEN en .env');
+  if (!isChatConfigured()) console.log('  → Al menos uno (Ollama o HF_TOKEN) necesario para el chat.');
 });

@@ -110,23 +110,14 @@ export function ChatProvider({ children }) {
     }));
   }, [t]);
 
+  // Mensajes proactivos deshabilitados (no se programan timers)
   useEffect(() => {
     if (!user || isOnChatPage) return;
-
-    const schedule = () => {
-      const delay = timerRef.current ? randomBetween(50000, 130000) : randomBetween(25000, 45000);
-      timerRef.current = setTimeout(() => {
-        addProactiveMessage();
-        timerRef.current = null;
-        schedule();
-      }, delay);
-    };
-    schedule();
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = null;
     };
-  }, [user, isOnChatPage, addProactiveMessage]);
+  }, [user, isOnChatPage]);
 
   const consumePending = useCallback(() => {
     const snapshot = { ...pendingByAi };

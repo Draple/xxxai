@@ -5,3 +5,6 @@ dist/
 server/db/*.db
 .DS_Store
 uploads/
+
+# Modelos GGUF (descargar con ollama/download-gguf.js)
+*.gguf

@@ -1,10 +1,10 @@
 /**
  * Configuración unificada de tokens para APIs externas.
- * Los valores se leen de .env; aquí se exponen en un solo lugar para uso en WishApp y Hugging Face.
+ * WishApp (balance), Hugging Face Router (chat remoto), Ollama (chat local GGUF).
  *
- * Cómo obtener cada token:
- * - WishApp: inicia sesión en https://wishapp.online y obtén el Bearer token (panel o soporte).
- * - Hugging Face: https://huggingface.co/settings/tokens → crear token con permiso "Inference".
+ * - WishApp: https://wishapp.online
+ * - Hugging Face: https://huggingface.co/settings/tokens (Inference)
+ * - Ollama: backend local (OLLAMA_BASE_URL + OLLAMA_MODEL)
  */
 
 function loadEnv(name, defaultValue = undefined) {
@@ -18,16 +18,19 @@ export const apiKeys = {
     token: loadEnv('WISHAPP_API_TOKEN'),
     baseUrl: loadEnv('WISHAPP_API_BASE_URL', 'https://api.wishapp.online'),
   },
-  huggingface: {
-    token: loadEnv('HUGGINGFACE_API_TOKEN'),
-    // Modelo del router. Debe ser uno soportado por un proveedor que tengas habilitado en https://huggingface.co/settings/inference-providers
-    modelId: loadEnv('HF_CHAT_MODEL', 'meta-llama/Llama-3.2-3B-Instruct:fastest'),
+  hfRouter: {
+    token: loadEnv('HF_TOKEN'),
+    modelId: loadEnv('HF_CHAT_MODEL', 'zai-org/GLM-4.7-Flash:novita'),
+  },
+  ollama: {
+    baseUrl: loadEnv('OLLAMA_BASE_URL', 'http://localhost:11434'),
+    modelId: loadEnv('OLLAMA_MODEL'),
   },
 };
 
 /** Comprueba si hay al menos un token configurado (para avisos en arranque). */
 export function hasAnyExternalApiKey() {
-  return !!(apiKeys.wishapp.token || apiKeys.huggingface.token);
+  return !!(apiKeys.wishapp.token || apiKeys.hfRouter.token || apiKeys.ollama.modelId);
 }
 
 /** Indica si WishApp está configurado (balance). */
@@ -35,7 +38,17 @@ export function isWishAppConfigured() {
   return !!apiKeys.wishapp.token;
 }
 
-/** Indica si Hugging Face está configurado (chat). */
-export function isHuggingFaceConfigured() {
-  return !!apiKeys.huggingface.token;
+/** Indica si Ollama (local) está configurado para el chat. */
+export function isOllamaConfigured() {
+  return !!(apiKeys.ollama.baseUrl && apiKeys.ollama.modelId);
+}
+
+/** Indica si Hugging Face Router está configurado (chat remoto). */
+export function isHFRouterConfigured() {
+  return !!apiKeys.hfRouter.token;
+}
+
+/** Indica si el chat está disponible (Ollama local o Hugging Face Router). */
+export function isChatConfigured() {
+  return isOllamaConfigured() || isHFRouterConfigured();
 }

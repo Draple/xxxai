@@ -175,6 +175,24 @@ export default function CreaTuVideo() {
 
   const onDragOver = (e) => e.preventDefault();
 
+  const [loadingTestImage, setLoadingTestImage] = useState(false);
+  const loadTestImage = async () => {
+    setLoadingTestImage(true);
+    setError('');
+    try {
+      const base = window.location.origin;
+      const res = await fetch(`${base}/test-video-image.png`);
+      if (!res.ok) throw new Error('errorLoadingImage');
+      const blob = await res.blob();
+      const file = new File([blob], 'test-video-image.png', { type: blob.type || 'image/png' });
+      setPhotos([{ file, preview: URL.createObjectURL(blob) }]);
+    } catch (e) {
+      setError(t(e.message === 'errorLoadingImage' ? 'errorLoadingImage' : 'errorConnectionServer'));
+    } finally {
+      setLoadingTestImage(false);
+    }
+  };
+
   const handleGenerate = async (e) => {
     e.preventDefault();
     if (!prompt.trim()) return;
@@ -246,7 +264,7 @@ export default function CreaTuVideo() {
         const isWishAppRelated = /wishapp|WishApp|balance\s*externo|servicio\s*de\s*balance/i.test(serverMsg);
         throw new Error(isWishAppRelated ? 'errorVideoTryAgain' : (serverMsg || 'errorGenerateGeneric'));
       }
-      navigate('/mis-videos');
+      navigate('/mis-videos', { state: { generateMessage: data.message || 'Generando video...' } });
     } catch (e) {
       const errKey = e.message;
       const isConnectionError = errKey === 'errorConnectionServer' || e.name === 'TypeError' || /failed to fetch|network|connection/i.test(e.message || '');
@@ -347,9 +365,17 @@ export default function CreaTuVideo() {
           )}
 
           <div>
-            <div className="flex items-center gap-1.5 mb-1.5">
+            <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
               <span className="text-xs font-medium text-zinc-300">{t('uploadPhotos')}</span>
               <span className="text-xs text-onix-success font-medium">({t('uploadPhotosOptional')})</span>
+              <button
+                type="button"
+                onClick={loadTestImage}
+                disabled={loadingTestImage || generating}
+                className="ml-auto text-xs font-medium text-onix-accent hover:text-onix-accentHover disabled:opacity-50"
+              >
+                {loadingTestImage ? t('loading') : t('useTestImage')}
+              </button>
             </div>
             <div
               onDrop={onDrop}
@@ -366,6 +392,9 @@ export default function CreaTuVideo() {
                 onChange={(e) => { addPhotos(e.target.files); e.target.value = ''; }}
               />
               <p className="text-onix-muted text-xs">{t('uploadPhotosHint')}</p>
+              {photos.length === 0 && !selectedAiId && (
+                <p className="text-amber-400/90 text-xs mt-1">{t('videoNoPhotoHint')}</p>
+              )}
               {photos.length > 0 && (
                 <p className="text-onix-accent text-xs mt-0.5 font-medium">{photos.length} {photos.length === 1 ? t('photoCount') : t('photoCountPlural')}</p>
               )}

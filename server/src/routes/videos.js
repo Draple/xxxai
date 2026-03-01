@@ -1,3 +1,7 @@
+/**
+ * Rutas de generación de vídeos por IA.
+ * API central: WishApp (undress_video). Ver docs/INTEGRACION-WISHAPP-VIDEOS.md
+ */
 import { Router } from 'express';
 import mongoose from 'mongoose';
 import fs from 'fs';
@@ -7,9 +11,56 @@ import { User } from '../models/User.js';
 import { connectDB } from '../db/db.js';
 import { createUndressVideo } from '../api/wishapp.js';
 import { isWishAppConfigured } from '../config/apiKeys.js';
+import { videoGenerateRateLimit } from '../middleware/rateLimit.js';
 
 const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || 4000}`;
+const MAX_PROMPT_LENGTH = 2000;
+
+/** Sanitiza el prompt: quita caracteres de control y normaliza espacios. */
+function sanitizePrompt(str) {
+  if (typeof str !== 'string') return '';
+  return str
+    .replace(/[\x00-\x1F\x7F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Solo aceptamos photo_url que apunten a nuestros uploads (seguridad: no enviar URLs arbitrarias a WishApp). */
+function isAllowedPhotoUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  const u = url.trim();
+  if (u.length > 2048) return false;
+  try {
+    const parsed = new URL(u);
+    const base = new URL(PUBLIC_URL.replace(/\/$/, ''));
+    const okHost = parsed.hostname === base.hostname || /^localhost|127\.0\.0\.1$/.test(parsed.hostname);
+    const okPath = parsed.pathname.startsWith('/uploads/');
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? okHost && okPath : false;
+  } catch {
+    return false;
+  }
+}
+
+/** True si PUBLIC_URL es local (localhost/127.0.0.1). WishApp no puede descargar imágenes desde nuestra máquina. */
+function isPublicUrlLocal() {
+  try {
+    const u = new URL(PUBLIC_URL);
+    return /^localhost|127\.0\.0\.1$/i.test(u.hostname);
+  } catch {
+    return true;
+  }
+}
+
+/** Extrae la URL del vídeo de la respuesta de WishApp (varios formatos posibles). */
+function getVideoUrlFromWishAppResponse(data) {
+  if (!data || typeof data !== 'object') return null;
+  const url = data.url ?? data.video_url ?? data.output_url ?? data.result_url ?? data.video ?? data.output;
+  if (url && typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) return url;
+  const nested = data.result?.url ?? data.result?.video_url ?? data.data?.url ?? data.data?.video_url;
+  if (nested && typeof nested === 'string' && (nested.startsWith('http://') || nested.startsWith('https://'))) return nested;
+  return null;
+}
 
 export const videosRouter = Router();
 
@@ -60,12 +111,14 @@ videosRouter.post('/upload-image', async (req, res) => {
   }
 });
 
-// POST /api/videos/generate — si hay photo_url y WishApp configurado, llama a /v1/undress_video/
-videosRouter.post('/generate', async (req, res) => {
+// POST /api/videos/generate — si hay photo_url y WishApp configurado, llama a WishApp /v1/undress_video/
+videosRouter.post('/generate', videoGenerateRateLimit, async (req, res) => {
   try {
     await connectDB();
     const { prompt, images: rawImages, quality: reqQuality, photo_url: photoUrl } = req.body;
-    if (!prompt?.trim()) return res.status(400).json({ error: 'Prompt requerido' });
+    const promptTrim = sanitizePrompt(prompt);
+    if (!promptTrim) return res.status(400).json({ error: 'Prompt requerido' });
+    if (promptTrim.length > MAX_PROMPT_LENGTH) return res.status(400).json({ error: 'Descripción demasiado larga' });
     const allowedQuality = ['720p', '1080p', '2k', '4k'];
     const quality = allowedQuality.includes(reqQuality) ? reqQuality : '1080p';
     let user = await User.findById(req.user.id).select('balance').lean();
@@ -87,7 +140,7 @@ videosRouter.post('/generate', async (req, res) => {
 
     const video = await Video.create({
       user_id: req.user.id,
-      prompt: prompt.trim(),
+      prompt: promptTrim,
       status: 'processing',
       reference_image_count: images.length,
       quality,
@@ -95,18 +148,27 @@ videosRouter.post('/generate', async (req, res) => {
 
     await User.findByIdAndUpdate(req.user.id, { $inc: { balance: -1 } });
 
-    const useWishApp = photoUrl && typeof photoUrl === 'string' && photoUrl.trim() && isWishAppConfigured();
+    const safePhotoUrl = isAllowedPhotoUrl(photoUrl) ? photoUrl.trim() : null;
+    // WishApp solo si hay foto, está configurado y PUBLIC_URL es accesible desde internet (no localhost)
+    const publicUrlIsLocal = isPublicUrlLocal();
+    const useWishApp = safePhotoUrl && isWishAppConfigured() && !publicUrlIsLocal;
+
+    if (safePhotoUrl && isWishAppConfigured() && publicUrlIsLocal) {
+      console.warn('[videos] WishApp configurado pero PUBLIC_URL es localhost; WishApp no puede descargar la imagen. Usando vídeo de demostración.');
+    }
+
     if (useWishApp) {
       try {
-        const [width, height] = QUALITY_TO_SIZE[quality] || [512, 680];
+        const width = 512;
+        const height = 680;
         const data = await createUndressVideo({
-          photo_url: photoUrl.trim(),
-          prompt: prompt.trim(),
+          photo_url: safePhotoUrl,
+          prompt: promptTrim,
           width,
           height,
           scene_id: 1,
         });
-        const resultUrl = data?.url || data?.video_url || data?.output_url;
+        const resultUrl = getVideoUrlFromWishAppResponse(data);
         if (resultUrl) {
           await Video.findByIdAndUpdate(video._id, { status: 'completed', url: resultUrl });
           return res.status(200).json({
@@ -116,7 +178,16 @@ videosRouter.post('/generate', async (req, res) => {
             message: 'Video generado',
           });
         }
-        // Respuesta async (job_id): dejamos status processing
+        // Respuesta async (job_id): dejamos processing; el usuario ve "Generando..." en Mis vídeos
+        const jobId = data?.job_id ?? data?.id ?? data?.task_id;
+        if (jobId) {
+          await Video.findByIdAndUpdate(video._id, { $set: { external_job_id: String(jobId) } }).catch(() => {});
+        }
+        return res.status(202).json({
+          id: video._id.toString(),
+          status: 'processing',
+          message: 'El vídeo se está generando. Puede tardar unos minutos; revisa en Mis vídeos.',
+        });
       } catch (wishErr) {
         await User.findByIdAndUpdate(req.user.id, { $inc: { balance: 1 } });
         const msg = wishErr.message || 'Error al generar video con WishApp';
@@ -124,6 +195,7 @@ videosRouter.post('/generate', async (req, res) => {
       }
     }
 
+    // Sin WishApp o sin photo_url válido: vídeo de demostración tras unos segundos
     setTimeout(async () => {
       try {
         await connectDB();
@@ -132,10 +204,17 @@ videosRouter.post('/generate', async (req, res) => {
       } catch (_) {}
     }, 3000);
 
+    let processingMessage = 'Generando video...';
+    if (isWishAppConfigured() && !safePhotoUrl) {
+      processingMessage = 'Sube una foto (o elige una IA) para generar el vídeo con IA. Sin imagen se crea un vídeo de demostración.';
+    } else if (safePhotoUrl && publicUrlIsLocal) {
+      processingMessage = 'Creando vídeo de demostración. En unos segundos lo verás aquí. Para generar con IA real, expón el backend con una URL pública (ngrok o despliegue).';
+    }
+
     return res.status(202).json({
       id: video._id.toString(),
       status: 'processing',
-      message: 'Generando video...',
+      message: processingMessage,
     });
   } catch (e) {
     const msg = e.message || 'Error al generar';
@@ -186,8 +265,10 @@ const IMPROVE_PHRASES = {
 videosRouter.post('/improve-prompt', async (req, res) => {
   try {
     const { prompt, lang } = req.body;
-    if (!prompt?.trim()) return res.status(400).json({ error: 'Descripción requerida' });
-    let text = prompt.trim();
+    const textInput = sanitizePrompt(prompt);
+    if (!textInput) return res.status(400).json({ error: 'Descripción requerida' });
+    if (textInput.length > MAX_PROMPT_LENGTH) return res.status(400).json({ error: 'Descripción demasiado larga' });
+    let text = textInput;
 
     const phrases = IMPROVE_PHRASES[lang === 'en' ? 'en' : 'es'];
     const atmosphere = phrases.atmosphere;

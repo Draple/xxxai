@@ -1,11 +1,11 @@
 # Tokens de APIs externas
 
-Los tokens de WishApp y Hugging Face se configuran en **`.env`** y se cargan en un único módulo del servidor: **`server/src/config/apiKeys.js`**. Cada API usa solo su propio token.
+Los tokens se configuran en **`.env`** y se cargan en **`server/src/config/apiKeys.js`**.
 
-| Variable en .env           | Uso en el proyecto   | Dónde obtener el token |
-|---------------------------|----------------------|--------------------------|
-| `WISHAPP_API_TOKEN`       | Balance de puntos    | [wishapp.online](https://wishapp.online) — inicia sesión y obtén el Bearer token (panel o documentación del API). |
-| `HUGGINGFACE_API_TOKEN`   | Chat con IA (Gemma)  | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) — crea un token con permiso **Inference**. |
+| Variable en .env    | Uso en el proyecto   | Dónde obtener el token |
+|---------------------|----------------------|--------------------------|
+| `WISHAPP_API_TOKEN` | **Centro del negocio:** generación de vídeos por IA + balance | [wishapp.online](https://wishapp.online) — inicia sesión y obtén el Bearer token. Ver [INTEGRACION-WISHAPP-VIDEOS.md](INTEGRACION-WISHAPP-VIDEOS.md). |
+| `HF_TOKEN`          | Chat (GLM-4.7-Flash) | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) — token con permiso **Inference**. |
 
 ## Configuración
 
@@ -13,13 +13,14 @@ Los tokens de WishApp y Hugging Face se configuran en **`.env`** y se cargan en 
 2. Asigna cada token en `.env`:
    ```env
    WISHAPP_API_TOKEN=tu_token_wishapp
-   HUGGINGFACE_API_TOKEN=hf_xxxxxxxxxxxx
+   HF_TOKEN=hf_xxxxxxxxxxxx
    ```
-3. Reinicia el backend. Al arrancar verás en consola si cada servicio está configurado o no.
+3. Opcional: `HF_CHAT_MODEL=zai-org/GLM-4.7-Flash:novita` (por defecto ya es este modelo).
+4. Reinicia el backend. Al arrancar verás en consola si cada servicio está configurado.
 
 ## Uso en el código
 
-- **WishApp** (balance): `server/src/api/wishapp.js` usa `apiKeys.wishapp.token` y `apiKeys.wishapp.baseUrl`. Ruta: `GET /api/wishapp/balance`.
-- **Hugging Face** (chat): `server/src/api/huggingface.js` usa `apiKeys.huggingface.token` y `apiKeys.huggingface.modelId`. Ruta: `POST /api/ai/chat`.
+- **WishApp** (generación de vídeos por IA y balance): `server/src/api/wishapp.js`. Rutas: `GET /api/wishapp/balance`, `POST /api/videos/generate` (usa undress_video). El token **nunca** se envía al frontend.
+- **Chat**: `server/src/api/hfRouter.js` — llama a `https://router.huggingface.co/v1/chat/completions` (OpenAI-compatible) con el modelo `zai-org/GLM-4.7-Flash:novita`. Rutas: `POST /api/ai/chat`, `POST /api/ai/feed-post`.
 
-Si falta el token correspondiente, la ruta devuelve **503** con un mensaje indicando qué variable añadir en `.env`.
+Si falta `HF_TOKEN`, el chat devuelve **503** indicando que añadas la variable en `.env`.

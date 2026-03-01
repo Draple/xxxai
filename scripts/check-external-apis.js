@@ -1,6 +1,6 @@
 /**
- * Comprueba que los tokens de WishApp y Hugging Face respondan bien.
- * Lee .env (WISHAPP_API_TOKEN, HUGGINGFACE_API_TOKEN).
+ * Comprueba que los tokens de WishApp y Hugging Face Router respondan bien.
+ * Lee .env (WISHAPP_API_TOKEN, HF_TOKEN).
  * Ejecutar: node scripts/check-external-apis.js
  */
 
@@ -25,12 +25,12 @@ async function checkWishApp() {
   }
 }
 
-async function checkHuggingFace() {
-  const token = process.env.HUGGINGFACE_API_TOKEN;
+async function checkHFRouter() {
+  const token = process.env.HF_TOKEN;
   if (!token) {
-    return { ok: false, message: 'HUGGINGFACE_API_TOKEN no definido en .env' };
+    return { ok: false, message: 'HF_TOKEN no definido en .env' };
   }
-  const model = process.env.HF_CHAT_MODEL || 'meta-llama/Llama-3.2-3B-Instruct:fastest';
+  const model = process.env.HF_CHAT_MODEL || 'zai-org/GLM-4.7-Flash:novita';
   try {
     const res = await fetch('https://router.huggingface.co/v1/chat/completions', {
       method: 'POST',
@@ -40,17 +40,15 @@ async function checkHuggingFace() {
       },
       body: JSON.stringify({
         model,
-        messages: [{ role: 'user', content: 'Di hola en una palabra.' }],
         max_tokens: 20,
-        stream: false,
+        messages: [{ role: 'user', content: 'Di hola en una palabra.' }],
       }),
     });
     if (res.status === 401) return { ok: false, message: 'Token Hugging Face inválido' };
-    if (res.status === 503) return { ok: false, message: 'Modelo cargando (503). Reintenta en unos segundos.' };
     if (!res.ok) {
       const body = await res.text();
       const short = body.length > 80 ? body.slice(0, 80) + '...' : body;
-      return { ok: false, message: `Hugging Face API: ${res.status} - ${short || res.statusText}` };
+      return { ok: false, message: `HF Router API: ${res.status} - ${short || res.statusText}` };
     }
     const data = await res.json();
     const text = data?.choices?.[0]?.message?.content ?? '';
@@ -60,12 +58,29 @@ async function checkHuggingFace() {
   }
 }
 
+function checkVideoGenerationReady() {
+  const pub = process.env.PUBLIC_URL || '';
+  try {
+    const u = new URL(pub || 'http://localhost');
+    if (/^localhost|127\.0\.0\.1$/i.test(u.hostname)) {
+      return { ok: false, message: 'PUBLIC_URL es localhost: WishApp no puede descargar imágenes. Para generación real en local usa ngrok y pon PUBLIC_URL=https://tu-tunel.ngrok.io' };
+    }
+  } catch (_) {
+    return { ok: false, message: 'PUBLIC_URL no definida o inválida' };
+  }
+  return { ok: true, message: `PUBLIC_URL accesible: ${pub}` };
+}
+
 async function main() {
   console.log('\n--- APIs externas (tokens en .env) ---\n');
   const w = await checkWishApp();
   console.log(w.ok ? `  ✓ WishApp (balance): ${w.message}` : `  ✗ WishApp: ${w.message}`);
-  const h = await checkHuggingFace();
-  console.log(h.ok ? `  ✓ Hugging Face (chat): ${h.message}` : `  ✗ Hugging Face: ${h.message}`);
+  if (w.ok) {
+    const v = checkVideoGenerationReady();
+    console.log(v.ok ? `  ✓ Generación de vídeo: ${v.message}` : `  ⚠ Generación de vídeo: ${v.message}`);
+  }
+  const h = await checkHFRouter();
+  console.log(h.ok ? `  ✓ HF Router (chat): ${h.message}` : `  ✗ HF Router: ${h.message}`);
   console.log('');
   process.exit(w.ok && h.ok ? 0 : 1);
 }

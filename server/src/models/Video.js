@@ -6,6 +6,7 @@ const videoSchema = new mongoose.Schema(
     prompt: { type: String, required: true },
     status: { type: String, enum: ['pending', 'processing', 'completed', 'failed'], default: 'pending' },
     url: { type: String },
+    external_job_id: { type: String }, // job_id de WishApp cuando la respuesta es async
     reference_image_count: { type: Number, default: 0 },
     quality: { type: String, enum: ['720p', '1080p', '2k', '4k'], default: '1080p' },
   },

@@ -1,8 +1,8 @@
 /**
- * Cliente para la API WishApp (https://api.wishapp.online)
- * Documentación: https://api.wishapp.online/en/docs
- * Usa el token configurado en config/apiKeys.js (WISHAPP_API_TOKEN).
- * La generación de videos NO depende de WishApp; usa el balance de User (MongoDB).
+ * Cliente para la API WishApp (https://api.wishapp.online).
+ * API central del negocio: generación de vídeos por IA (undress video).
+ * Documentación: https://api.wishapp.online/en/docs | docs/INTEGRACION-WISHAPP-VIDEOS.md
+ * Token solo en servidor (WISHAPP_API_TOKEN en .env). Nunca exponer al frontend.
  */
 
 import { apiKeys } from '../config/apiKeys.js';
@@ -106,7 +106,11 @@ export async function createUndressVideo(params) {
 
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const err = new Error(data.detail || data.message || `WishApp undress_video: ${res.status}`);
+      const raw = (data.detail || data.message || data.error || `WishApp undress_video: ${res.status}`).toString();
+      const friendly = /WIDTH_NOT_VALID|width.*valid/i.test(raw)
+        ? 'Dimensiones no válidas para el vídeo. Usa la imagen subida y vuelve a intentar.'
+        : raw;
+      const err = new Error(friendly);
       err.status = res.status;
       throw err;
     }
